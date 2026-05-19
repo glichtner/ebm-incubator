@@ -79,8 +79,6 @@
   <type value="Contributorship"/>
   <baseDefinition value="http://hl7.org/fhir/StructureDefinition/DomainResource"/>
   <derivation value="specialization"/>
-
-
 <snapshot> 
     <element id="Contributorship">
       <path value="Contributorship"/> 
