@@ -1,0 +1,119 @@
+name: Build IG
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - staging
+  pull_request:
+    branches:
+      - main
+      - master
+      - staging
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+env:
+  JAVA_TOOL_OPTIONS: "-Xmx6g -Dfile.encoding=UTF-8"
+  PUBLISHER_REPO: glichtner/fhir-ig-publisher
+
+jobs:
+  build-ig:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: |
+          if ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install Jekyll
+        run: gem install bundler jekyll
+
+      - name: Install SUSHI
+        run: npm install -g fsh-sushi
+
+      - name: Download latest glichtner IG Publisher
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p input-cache
+
+          auth_header=()
+          if [ -n "${GH_RELEASE_TOKEN:-}" ]; then
+            auth_header=(-H "Authorization: Bearer ${GH_RELEASE_TOKEN}")
+          elif [ -n "${GITHUB_TOKEN:-}" ]; then
+            auth_header=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+          fi
+
+          releases_json="$(curl -fsSL "${auth_header[@]}" "https://api.github.com/repos/${PUBLISHER_REPO}/releases?per_page=20")"
+          if jq -e 'type != "array"' <<< "$releases_json" >/dev/null; then
+            echo "GitHub API did not return a release list for ${PUBLISHER_REPO}:"
+            jq -r '.message // .' <<< "$releases_json"
+            exit 1
+          fi
+
+          asset_url="$(jq -r '[.[] | select(.draft | not) | .assets[]? | select(.name == "publisher.jar" or (.name | test("publisher.*\\.jar$")))] | .[0].browser_download_url // ""' <<< "$releases_json")"
+
+          if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+            echo "Could not find publisher.jar in any non-draft ${PUBLISHER_REPO} release."
+            exit 1
+          fi
+
+          echo "Downloading publisher from $asset_url"
+          curl -fL "${auth_header[@]}" "$asset_url" -o input-cache/publisher.jar
+
+      - name: Run SUSHI
+        run: sushi .
+
+      - name: Run IG Publisher
+        run: java -jar input-cache/publisher.jar -ig . -no-sushi
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebm-incubator-ig-output
+          path: output
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebm-incubator-package
+          path: output/package.tgz
+          if-no-files-found: error
+
+      - name: Upload package to GitHub release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/package.tgz
