@@ -17,7 +17,7 @@ extension:
   - url: http://hl7.org/fhir/StructureDefinition/structuredefinition-fmm
     valueInteger: 1
 version: 1.0.0-ballot
-fhirVersion: 6.0.0-ballot3 # https://www.hl7.org/fhir/valueset-FHIR-version.html
+fhirVersion: 6.0.0-ballot4 # https://www.hl7.org/fhir/valueset-FHIR-version.html
 copyrightYear: 2024+
 releaseLabel: STU 1 ballot # ci-build | draft | qa-preview | ballot | trial-use | release | update | normative+trial-use
 license: CC0-1.0 # https://www.hl7.org/fhir/valueset-spdx-license.html
@@ -26,7 +26,7 @@ publisher:
   name: HL7 International / Clinical Decision Support
   url: http://www.hl7.org/Special/committees/dss
 
-dependencies:
+# dependencies:
 #  hl7.fhir.r6.core: latest
 #  hl7.fhir.uv.extensions: dev
 #  hl7.terminology: latest
@@ -79,12 +79,9 @@ pages:
 #
 parameters:
   apply-jurisdiction: true
-  path-resource:
-    - input/resources/citation
-    - input/resources/contributorship
   additional-resource:
-    - input/resources/citation/StructureDefinition-Citation.xml
-    - input/resources/contributorship/StructureDefinition-Contributorship.xml
+    - input/resources/StructureDefinition-Citation.xml
+    - input/resources/StructureDefinition-Contributorship.xml
   special-url-base: http://hl7.org/fhir
 # parameters:
 #   excludettl: true
