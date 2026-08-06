@@ -60,25 +60,11 @@ jobs:
       - name: Install SUSHI
         run: npm install -g fsh-sushi
 
-      # 6.0.0-ballot5 is published at hl7.org but not yet available from the
-      # FHIR package registries, so seed the local package cache directly from
-      # hl7.org. Harmless once the registries serve ballot5.
+      # Seeds hl7.fhir.r6.core/expansions#6.0.0-ballot5 from hl7.org (ballot5
+      # is not on the package registries yet) and fixes the packages' web
+      # location and materialized extension slicing; see script for details.
       - name: Install FHIR R6 ballot5 packages into local FHIR cache
-        run: |
-          set -euo pipefail
-          for p in hl7.fhir.r6.core hl7.fhir.r6.expansions; do
-            dir="$HOME/.fhir/packages/${p}#6.0.0-ballot5"
-            rm -rf "$dir"
-            mkdir -p "$dir"
-            curl -fsSL "https://hl7.org/fhir/6.0.0-ballot5/${p}.tgz" | tar -xz -C "$dir"
-            test -f "$dir/package/package.json"
-            # The published ballot5 packages carry the spec publisher's local
-            # build path as their web location; point it at hl7.org so rendered
-            # spec links resolve. No-op once HL7 fixes the packages.
-            grep -rlF 'file:/Users/grahame/work/r6/publish/' "$dir" 2>/dev/null | while IFS= read -r f; do
-              sed -i 's|file:/Users/grahame/work/r6/publish/|https://hl7.org/fhir/6.0.0-ballot5/|g' "$f"
-            done || true
-          done
+        run: ./download-fhir-r6-ballot5.sh
 
       - name: Download latest glichtner IG Publisher
         env:
