@@ -72,6 +72,12 @@ jobs:
             mkdir -p "$dir"
             curl -fsSL "https://hl7.org/fhir/6.0.0-ballot5/${p}.tgz" | tar -xz -C "$dir"
             test -f "$dir/package/package.json"
+            # The published ballot5 packages carry the spec publisher's local
+            # build path as their web location; point it at hl7.org so rendered
+            # spec links resolve. No-op once HL7 fixes the packages.
+            grep -rlF 'file:/Users/grahame/work/r6/publish/' "$dir" 2>/dev/null | while IFS= read -r f; do
+              sed -i 's|file:/Users/grahame/work/r6/publish/|https://hl7.org/fhir/6.0.0-ballot5/|g' "$f"
+            done || true
           done
 
       - name: Download latest glichtner IG Publisher
