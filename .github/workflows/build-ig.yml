@@ -131,3 +131,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: output/package.tgz
+
+      # Durable copy of the latest package: workflow artifacts expire after
+      # ~90 days, which would break downstream builds (ebm, awmf-ig) whenever
+      # this repo has been quiet for a while. Marked prerelease so it never
+      # becomes the repo's "latest" release.
+      - name: Update rolling ci-build release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-build
+          name: Rolling CI build package
+          prerelease: true
+          make_latest: false
+          body: |
+            Latest hl7.fhir.uv.ebm-incubator package.tgz, updated on every push
+            to the default branch. Built from ${{ github.sha }}.
+          files: output/package.tgz
