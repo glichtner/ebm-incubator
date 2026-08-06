@@ -22,6 +22,7 @@ permissions:
 env:
   JAVA_TOOL_OPTIONS: "-Xmx6g -Dfile.encoding=UTF-8"
   PUBLISHER_REPO: glichtner/fhir-ig-publisher
+  SUSHI_VERSION: "3.20.0"
 
 jobs:
   build-ig:
@@ -58,7 +59,7 @@ jobs:
         run: gem install bundler jekyll
 
       - name: Install SUSHI
-        run: npm install -g fsh-sushi
+        run: npm install -g "fsh-sushi@${SUSHI_VERSION}"
 
       # Seeds hl7.fhir.r6.core/expansions#6.0.0-ballot5 from hl7.org (ballot5
       # is not on the package registries yet) and fixes the packages' web
@@ -105,6 +106,9 @@ jobs:
       - name: Run IG Publisher
         run: java -jar input-cache/publisher.jar -ig . -no-sushi
 
+      - name: QA baseline check (warn-only)
+        run: ./check-qa-baseline.sh
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
@@ -129,7 +133,7 @@ jobs:
       # this repo has been quiet for a while. Marked prerelease so it never
       # becomes the repo's "latest" release.
       - name: Update rolling ci-build release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-build
@@ -140,3 +144,23 @@ jobs:
             Latest hl7.fhir.uv.ebm-incubator package.tgz, updated on every push
             to the default branch. Built from ${{ github.sha }}.
           files: output/package.tgz
+
+      # Trigger the downstream ebm build (cross-repo workflow_dispatch).
+      # Requires a PAT with actions:write on glichtner/ebm stored as the
+      # GH_RELEASE_TOKEN secret; skipped gracefully while it is absent.
+      - name: Trigger downstream ebm build
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        env:
+          DISPATCH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "::notice::GH_RELEASE_TOKEN not set - skipping downstream dispatch (glichtner/ebm)."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/glichtner/ebm/actions/workflows/build-ig.yml/dispatches \
+            -d '{"ref":"master"}' \
+            && echo "Dispatched glichtner/ebm build-ig.yml (master)" \
+            || echo "::warning::Downstream dispatch to glichtner/ebm failed (check GH_RELEASE_TOKEN scope: actions:write)"

@@ -1,0 +1,92 @@
+name: Sync with HL7 upstream
+
+# Nightly: pulls new commits from HL7/ebm-incubator. A clean merge is pushed
+# directly to main, which triggers build-ig.yml (new package + rolling
+# ci-build release + downstream dispatch). On conflict, a PR is opened with
+# the upstream state so GitHub shows the conflicting files.
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM_REPO: HL7/ebm-incubator
+  UPSTREAM_BRANCH: main
+  LOCAL_BRANCH: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/${UPSTREAM_REPO}.git
+          git fetch upstream ${UPSTREAM_BRANCH}
+
+      - name: Diff status
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/${UPSTREAM_BRANCH})
+          AHEAD=$(git rev-list --count upstream/${UPSTREAM_BRANCH}..HEAD)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          echo "Behind upstream by $BEHIND, ahead by $AHEAD (our patches)."
+
+      - name: Merge and push (if clean)
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          if git merge --no-edit upstream/${UPSTREAM_BRANCH}; then
+            git push origin ${LOCAL_BRANCH}
+            echo "result=merged" >> $GITHUB_OUTPUT
+            echo "Merged ${{ steps.check.outputs.behind }} upstream commits and pushed; build-ig will run."
+          else
+            git diff --name-only --diff-filter=U > /tmp/conflicts.txt || true
+            git merge --abort || true
+            echo "result=conflict" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open conflict PR
+        if: steps.merge.outputs.result == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="sync/upstream-${DATE}"
+          # Push the upstream state as the PR branch: GitHub then shows the
+          # conflicting files and the merge can be resolved in the PR.
+          git checkout -B "$BRANCH" upstream/${UPSTREAM_BRANCH}
+          git push --force origin "$BRANCH"
+          BODY=$(printf '%s\n' \
+            "Automated nightly upstream sync could not merge cleanly." \
+            "" \
+            "- Upstream: \`${UPSTREAM_REPO}@${UPSTREAM_BRANCH}\`" \
+            "- Behind by: ${{ steps.check.outputs.behind }} commits" \
+            "- Our patches ahead: ${{ steps.check.outputs.ahead }} commits" \
+            "" \
+            "Conflicting files:" \
+            '```' \
+            "$(cat /tmp/conflicts.txt 2>/dev/null)" \
+            '```' \
+            "" \
+            "Resolve the conflicts (PR UI or locally), keeping our fork changes" \
+            "(sushi-config fhirVersion, workflows, download-fhir-r6-ballot5.sh).")
+          gh pr create --base ${LOCAL_BRANCH} --head "$BRANCH" \
+            --title "Sync HL7 upstream ($DATE, ${{ steps.check.outputs.behind }} commits, CONFLICT)" \
+            --body "$BODY" || echo "PR may already exist"
